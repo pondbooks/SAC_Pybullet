@@ -12,10 +12,10 @@ import pybullet_envs
 
 
 def main():
-    ENV_ID = 'ReacherBulletEnv-v0'
+    ENV_ID = 'AntBulletEnv-v0'
     SEED = 0
     REWARD_SCALE = 1.0
-    NUM_STEPS =  10 ** 6
+    NUM_STEPS =  3 * 10 ** 6
     EVAL_INTERVAL = 10 ** 4
 
     env = gym.make(ENV_ID)
@@ -38,6 +38,7 @@ def main():
         action_shape=env.action_space.shape,
         seed=SEED,
         reward_scale=REWARD_SCALE,
+        auto_coef=True,
     )
 
     SACtrainer = trainer.Trainer(

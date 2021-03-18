@@ -11,8 +11,8 @@ import trainer
 class SAC(trainer.Algorithm):
 
     def __init__(self, state_shape, action_shape, device=torch.device('cuda'), seed=0,
-                 batch_size=256, gamma=0.99, lr_actor=3e-4, lr_critic=3e-4,
-                 replay_size=10**6, start_steps=10**4, tau=5e-3, alpha=0.2, reward_scale=1.0):
+                 batch_size=256, gamma=0.98, lr_actor=3e-4, lr_critic=3e-4,
+                 replay_size=10**6, start_steps=10**4, tau=0.01, alpha=0.2, reward_scale=1.0, auto_coef=False):
         super().__init__()
 
         
@@ -38,6 +38,13 @@ class SAC(trainer.Algorithm):
             state_shape=state_shape,
             action_shape=action_shape
         ).to(device).eval()
+        
+        self.auto_coef = auto_coef
+
+        self.alpha = alpha #更新する対象
+        if self.auto_coef:
+            self.target_entropy = -torch.prod(torch.Tensor(action_shape).to(device)).item()
+            self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
 
         # ターゲットネットワークの重みを初期化し，勾配計算を無効にする．
         self.critic_target.load_state_dict(self.critic.state_dict())
@@ -47,6 +54,8 @@ class SAC(trainer.Algorithm):
         # オプティマイザ．
         self.optim_actor = torch.optim.Adam(self.actor.parameters(), lr=lr_actor)
         self.optim_critic = torch.optim.Adam(self.critic.parameters(), lr=lr_critic)
+        if self.auto_coef:
+            self.optim_alpha = torch.optim.Adam([self.log_alpha], lr=lr_actor) #とりあえずactorの学習率にした
 
         # その他パラメータ．
         self.learning_steps = 0
@@ -55,7 +64,7 @@ class SAC(trainer.Algorithm):
         self.gamma = gamma
         self.start_steps = start_steps
         self.tau = tau
-        self.alpha = alpha
+        #self.alpha = alpha
         self.reward_scale = reward_scale
 
     def is_update(self, steps):
@@ -99,6 +108,8 @@ class SAC(trainer.Algorithm):
 
         self.update_critic(states, actions, rewards, dones, next_states)
         self.update_actor(states)
+        if self.auto_coef:
+            self.update_alpha(states)
         self.update_target()
 
     def update_critic(self, states, actions, rewards, dones, next_states):
@@ -126,6 +137,17 @@ class SAC(trainer.Algorithm):
         loss_actor.backward(retain_graph=False)
         self.optim_actor.step()
 
+    def update_alpha(self, states):
+        _, log_pis = self.actor.sample(states)
+
+        alpha_loss = -(self.log_alpha * (log_pis + self.target_entropy).detach()).mean()
+
+        self.optim_alpha.zero_grad()
+        alpha_loss.backward()
+        self.optim_alpha.step()
+
+        self.alpha = self.log_alpha.exp()
+
     def update_target(self):
         for t, s in zip(self.critic_target.parameters(), self.critic.parameters()):
             t.data.mul_(1.0 - self.tau)
@@ -133,4 +155,4 @@ class SAC(trainer.Algorithm):
     
     def backup_model(self, steps):
         #model = self.actor.to('cpu')
-        torch.save(self.actor.state_dict(), 'SAC_ReacherEnv_v0_Actor_model' + str(steps) + '.pth')
+        torch.save(self.actor.state_dict(), 'SAC_AntEnv_v0_Actor_model' + str(steps) + '.pth')
